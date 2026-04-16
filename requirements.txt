@@ -1,0 +1,14 @@
+python-dotenv==1.0.1
+requests==2.32.3
+stripe==11.4.0
+google-api-python-client==2.157.0
+google-auth==2.38.0
+google-auth-httplib2==0.2.0
+PyJWT==2.10.1
+cryptography==44.0.2
+sqlalchemy==2.0.40
+slack-sdk==3.34.0
+pytest==8.3.5
+pytest-mock==3.14.0
+responses==0.25.3
+freezegun==1.5.1
