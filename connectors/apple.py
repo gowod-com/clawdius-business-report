@@ -29,6 +29,28 @@ class AppleConnectorError(Exception):
     pass
 
 
+def _load_private_key() -> str:
+    """
+    Load the Apple private key. Supports two formats:
+    - APPLE_PRIVATE_KEY_FILE: path to a .p8 file
+    - APPLE_PRIVATE_KEY: inline PEM content (supports \\n-escaped or multi-line)
+    """
+    import os
+    key_file = os.getenv("APPLE_PRIVATE_KEY_FILE", "")
+    if key_file:
+        key_path = key_file.strip()
+        if not os.path.isabs(key_path):
+            key_path = str(config._ROOT / key_path)
+        with open(key_path, "r") as f:
+            return f.read().strip()
+
+    # Inline key from config (already has \n -> newline replacement applied in config.py)
+    key = config.APPLE_PRIVATE_KEY
+    if not key:
+        raise AppleConnectorError("No Apple private key configured. Set APPLE_PRIVATE_KEY_FILE or APPLE_PRIVATE_KEY.")
+    return key.strip()
+
+
 def _make_jwt() -> str:
     """Generate a signed JWT for App Store Connect API."""
     now = int(time.time())
@@ -38,8 +60,7 @@ def _make_jwt() -> str:
         "exp": now + JWT_EXPIRY_SECS,
         "aud": JWT_AUDIENCE,
     }
-    private_key = config.APPLE_PRIVATE_KEY
-    # Accept both raw PEM and p8 (they're the same format)
+    private_key = _load_private_key()
     token = jwt.encode(
         payload,
         private_key,

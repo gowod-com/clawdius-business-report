@@ -67,33 +67,52 @@ def _auto_paginate(list_fn, max_retries: int = 3, backoff: float = 2.0, **kwargs
         starting_after = page.data[-1].id
 
 
-def _get_card_country(stripe, invoice) -> str:
-    """Extract card country from invoice payment method or customer."""
+def _get_card_country_from_invoice(invoice: Dict[str, Any]) -> str:
+    """
+    Extract card country from an already-expanded invoice dict.
+    Uses only data already fetched — NO extra API calls.
+    Priority:
+      1. invoice.payment_method_details.card.country (set on paid invoices)
+      2. customer.invoice_settings.default_payment_method.card.country (expanded)
+      3. customer.default_source card country (legacy)
+      4. UNKNOWN
+    """
     try:
-        # Try payment intent's payment method
-        if invoice.get("payment_intent"):
-            pi = stripe.PaymentIntent.retrieve(
-                invoice["payment_intent"],
-                expand=["payment_method"],
-            )
-            pm = pi.get("payment_method")
-            if pm and pm.get("card") and pm["card"].get("country"):
-                return pm["card"]["country"]
+        # 1. payment_method_details on the invoice itself (most reliable, no extra call)
+        pmd = invoice.get("payment_method_details") or {}
+        if isinstance(pmd, dict):
+            card = pmd.get("card") or {}
+            if isinstance(card, dict) and card.get("country"):
+                return card["country"]
 
-        # Try customer's default payment method
-        customer_id = invoice.get("customer")
-        if customer_id:
-            customer = stripe.Customer.retrieve(
-                customer_id,
-                expand=["invoice_settings.default_payment_method"],
-            )
-            default_pm = customer.get("invoice_settings", {}).get("default_payment_method")
-            if default_pm and isinstance(default_pm, dict):
-                card = default_pm.get("card", {})
-                if card.get("country"):
+        # 2. charge object if already expanded (some invoice layouts include it)
+        charge = invoice.get("charge")
+        if isinstance(charge, dict):
+            pm_details = charge.get("payment_method_details") or {}
+            card = pm_details.get("card") or {}
+            if isinstance(card, dict) and card.get("country"):
+                return card["country"]
+            billing = charge.get("billing_details") or {}
+            addr = billing.get("address") or {}
+            if addr.get("country"):
+                return addr["country"]
+
+        # 3. Customer default payment method (expanded)
+        customer = invoice.get("customer")
+        if isinstance(customer, dict):
+            inv_settings = customer.get("invoice_settings") or {}
+            dpm = inv_settings.get("default_payment_method")
+            if isinstance(dpm, dict):
+                card = dpm.get("card") or {}
+                if isinstance(card, dict) and card.get("country"):
                     return card["country"]
+            # legacy: default_source
+            src = customer.get("default_source")
+            if isinstance(src, dict) and src.get("country"):
+                return src["country"]
+
     except Exception as exc:
-        logger.debug(f"Could not get card country: {exc}")
+        logger.debug(f"Could not get card country from invoice: {exc}")
 
     return "UNKNOWN"
 
@@ -127,11 +146,11 @@ def fetch_invoices(report_date: str) -> Iterator[Dict[str, Any]]:
             status="paid",
             created={"gte": start_ts, "lte": end_ts},
             limit=100,
-            expand=["data.subscription", "data.customer"],
+            expand=["data.subscription", "data.customer", "data.charge"],
         ):
             total += 1
             raw = invoice.to_dict() if hasattr(invoice, "to_dict") else dict(invoice)
-            country = _get_card_country(stripe, raw)
+            country = _get_card_country_from_invoice(raw)
             raw["_country"] = country
             yield raw
     except StripeConnectorError as e:
@@ -164,16 +183,16 @@ def fetch_active_subscriptions(report_date: str) -> Iterator[Dict[str, Any]]:
             stripe.Subscription.list,
             status="active",
             limit=100,
-            expand=["data.customer", "data.latest_invoice"],
+            expand=["data.customer", "data.latest_invoice.charge"],
         ):
             total += 1
             raw = sub.to_dict() if hasattr(sub, "to_dict") else dict(sub)
-            # Get country from latest invoice
+            # Get country from latest invoice (already expanded, no extra API call)
             country = "UNKNOWN"
             try:
                 latest_inv = raw.get("latest_invoice")
                 if latest_inv and isinstance(latest_inv, dict):
-                    country = _get_card_country(stripe, latest_inv)
+                    country = _get_card_country_from_invoice(latest_inv)
             except Exception:
                 pass
             raw["_country"] = country

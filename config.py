@@ -24,7 +24,9 @@ def _optional(key: str, default: str = "") -> str:
 # ---------------------------------------------------------------------------
 APPLE_KEY_ID = _optional("APPLE_KEY_ID")
 APPLE_ISSUER_ID = _optional("APPLE_ISSUER_ID")
-APPLE_PRIVATE_KEY = _optional("APPLE_PRIVATE_KEY")  # PEM / p8 content
+_raw_apple_key = _optional("APPLE_PRIVATE_KEY")
+# Support \n-escaped keys (common when stored in single-line env vars)
+APPLE_PRIVATE_KEY = _raw_apple_key.replace("\\n", "\n") if _raw_apple_key else ""
 APPLE_VENDOR_NUMBER = _optional("APPLE_VENDOR_NUMBER")
 
 # ---------------------------------------------------------------------------
@@ -53,7 +55,9 @@ LOG_LEVEL = _optional("LOG_LEVEL", "INFO")
 
 
 def is_apple_configured() -> bool:
-    return all([APPLE_KEY_ID, APPLE_ISSUER_ID, APPLE_PRIVATE_KEY, APPLE_VENDOR_NUMBER])
+    import os
+    key_available = bool(APPLE_PRIVATE_KEY) or bool(os.getenv("APPLE_PRIVATE_KEY_FILE", ""))
+    return all([APPLE_KEY_ID, APPLE_ISSUER_ID, key_available, APPLE_VENDOR_NUMBER])
 
 
 def is_google_configured() -> bool:

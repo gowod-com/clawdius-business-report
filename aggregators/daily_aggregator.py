@@ -80,8 +80,9 @@ def compute_and_store(session: Session, report_date: str) -> dict:
             by_country[country]["cancellations"] += 1
             by_platform_country[(platform, country)]["cancellations"] += 1
 
-        # Gross sales from non-CANCELLATION events with gross_amount
-        if event.event_type not in (EventType.CANCELLATION, EventType.UNKNOWN):
+        # Gross sales = all paid invoices (new subs + renewals), excluding cancellations
+        # UNKNOWN events with gross_amount > 0 are renewals (billing_reason=subscription_cycle)
+        if event.event_type != EventType.CANCELLATION and (event.gross_amount or 0.0) > 0:
             global_metrics["gross_sales"] += event.gross_amount or 0.0
             by_platform[platform]["gross_sales"] += event.gross_amount or 0.0
             by_country[country]["gross_sales"] += event.gross_amount or 0.0

@@ -96,11 +96,12 @@ def normalize_invoice(
 
     event_type = _infer_event_type(invoice, was_previously_active)
 
-    # Skip renewals
-    if event_type == EventType.UNKNOWN:
-        billing_reason = invoice.get("billing_reason", "")
-        if billing_reason == "subscription_cycle":
-            return None
+    # For billing_reason=subscription_cycle (renewals): keep the record for gross_sales
+    # but mark as UNKNOWN so they don't count as new subscriptions or cancellations.
+    # Non-subscription_cycle UNKNOWN events are discarded.
+    billing_reason = invoice.get("billing_reason", "")
+    if event_type == EventType.UNKNOWN and billing_reason != "subscription_cycle":
+        return None
 
     plan_interval = _infer_plan_interval(invoice)
     country = invoice.get("_country", "UNKNOWN") or "UNKNOWN"
